@@ -23,7 +23,7 @@ components:
   -
     type: dockerimage
     alias: dotnet
-    image: registry.redhat.io/codeready-workspaces/stacks-dotnet-rhel8:2.5
+    image: registry.redhat.io/codeready-workspaces/stacks-dotnet-rhel8:2.6
     memoryLimit: 512Mi
     endpoints:
       - name: 'hello-endpoint'
@@ -69,7 +69,7 @@ commands:
                     "args": [],
                     "name": ".NET Core Launch (console)",
                     "stopAtEntry": true,
-                    "preLaunchTask": "build",
+                    "preLaunchTask": "2. Build",
                     "console": "internalConsole"
                   }
               ]

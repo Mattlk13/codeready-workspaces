@@ -6,7 +6,7 @@ type: Che Editor
 displayName: theia-ide
 title: Eclipse Theia
 description: Eclipse Theia
-icon: https://raw.githubusercontent.com/redhat-developer/codeready-workspaces/master/dependencies/che-plugin-registry/resources/images/default.svg?sanitize=true
+icon: v3/images/eclipse-che-logo.png
 category: Editor
 repository: https://github.com/eclipse/che-theia
 firstPublicationDate: "2020-03-17"
@@ -58,7 +58,7 @@ spec:
         discoverable: false
   containers:
    - name: theia-ide
-     image: "registry.redhat.io/codeready-workspaces/theia-rhel8:2.5"
+     image: "registry.redhat.io/codeready-workspaces/theia-rhel8:2.6"
      env:
          - name: THEIA_PLUGINS
            value: local-dir:///plugins
@@ -81,7 +81,7 @@ spec:
      memoryLimit: "512M"
   initContainers:
   - name: remote-runtime-injector
-    image: registry.redhat.io/codeready-workspaces/theia-endpoint-rhel8:2.5
+    image: registry.redhat.io/codeready-workspaces/theia-endpoint-rhel8:2.6
     volumes:
       - mountPath: "/remote-endpoint"
         name: remote-endpoint

@@ -193,7 +193,8 @@ egrep "<version>" ''' + CHE_path + '''/pom.xml|head -2|tail -1|sed -r -e "s#.*<v
 		// for VERSION=7.18.3, get BASE=7.18, PREV=2 so VER_CHE_PREV=7.18.2
 		VER_CHE_PREV = sh(returnStdout:true,script:'''#!/bin/bash -xe
 VERSION=$(egrep "<version>" ''' + CHE_path + '''/pom.xml|head -2|tail -1| sed -r -e "s#.*<version>(.+)-SNAPSHOT</version>#\\1#")
-[[ $VERSION =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+) ]] && BASE="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"; PREV="${BASH_REMATCH[3]}"; let PREV=PREV-1 || PREV=0;
+[[ $VERSION =~ ^([0-9]+)\\.([0-9]+)\\.([0-9]+) ]] && BASE="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"; PREV="${BASH_REMATCH[3]}"; 
+let PREV=PREV-1; if [[ $PREV -lt 0 ]]; then PREV=0; fi # if -1, then 0
 PREVVERSION="${BASE}.${PREV}"; echo ${PREVVERSION}
 ''').trim()
 
@@ -380,10 +381,7 @@ COPY assembly/codeready-workspaces-assembly-main/target/codeready-workspaces-ass
 RUN tar xzf /tmp/codeready-workspaces-assembly-main.tar.gz --transform="s#.*codeready-workspaces-assembly-main/*##" -C /home/user/codeready \\&\\& rm -f /tmp/codeready-workspaces-assembly-main.tar.gz\\
 @g' \
 		-e 's@chmod g\\+w /home/user/cacerts@chmod 777 /home/user/cacerts@g'
-		# CRW-1189 applying the fix in midstream entrypoint.sh
-		sed -i ${WORKSPACE}/''' + CRW_path + '''/entrypoint.sh \
-		-e '/chmod 644 \\$JAVA_TRUST_STORE || true/d' \
-		-e 's/chmod 444 \\$JAVA_TRUST_STORE/chmod 444 \\$JAVA_TRUST_STORE || true/g'
+
 		CRW_VERSION="''' + CRW_VERSION_F + '''"
 		# apply patches to downstream version
 		cp ${WORKSPACE}/''' + CRW_path + '''/Dockerfile ${WORKSPACE}/targetdwn/Dockerfile
@@ -392,11 +390,6 @@ RUN tar xzf /tmp/codeready-workspaces-assembly-main.tar.gz --transform="s#.*code
 		-e "s#FROM registry.access.redhat.com/#FROM #g" \
 		-e "s#COPY assembly/codeready-workspaces-assembly-main/target/#COPY #g" \
 		-e "s/# *RUN yum /RUN yum /g"
-
-		# CRW-1189 applying fix to downstream entrypoint.sh
-		sed -i ${WORKSPACE}/targetdwn/entrypoint.sh \
-		-e '/chmod 644 \\$JAVA_TRUST_STORE || true/d' \
-		-e 's/chmod 444 \\$JAVA_TRUST_STORE/chmod 444 \\$JAVA_TRUST_STORE || true/g'
 
 METADATA='ENV SUMMARY="Red Hat CodeReady Workspaces server container" \\\r
     DESCRIPTION="Red Hat CodeReady Workspaces server container" \\\r

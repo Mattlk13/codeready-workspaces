@@ -1,6 +1,6 @@
 #!/bin/bash -e
 #
-# Copyright (c) 2019-2020 Red Hat, Inc.
+# Copyright (c) 2018-2021 Red Hat, Inc.
 # This program and the accompanying materials are made
 # available under the terms of the Eclipse Public License 2.0
 # which is available at https://www.eclipse.org/legal/epl-2.0/
@@ -19,7 +19,7 @@
 command -v jq >/dev/null 2>&1 || { echo "jq is not installed. Aborting."; exit 1; }
 command -v skopeo >/dev/null 2>&1 || { echo "skopeo is not installed. Aborting."; exit 1; }
 checkVersion() {
-  if [[  "$1" = "`echo -e "$1\n$2" | sort -V | head -n1`" ]]; then
+  if [[  "$1" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]]; then
     # echo "[INFO] $3 version $2 >= $1, can proceed."
 	true
   else 
@@ -31,8 +31,9 @@ checkVersion 0.40 "$(skopeo --version | sed -e "s/skopeo version //")" skopeo
 
 QUIET=0 	# less output - omit container tag URLs
 VERBOSE=0	# more output
-WORKDIR=`pwd`
-BRANCH=crw-2.5-rhel-8 # or another branch, depends on the repo
+WORKDIR=$(pwd)
+SOURCES_BRANCH="crw-2.6-rhel-8" # where to find source branch to update, crw-2.6-rhel-8, 7.24.x, etc.
+SCRIPTS_BRANCH="crw-2.6-rhel-8" # where to find redhat-developer/codeready-workspaces/${SCRIPTS_BRANCH}/product/getLatestImageTags.sh
 DOCKERFILE="Dockerfile" # or "rhel.Dockerfile"
 MAXDEPTH=2
 PR_BRANCH="pr-new-base-images-$(date +%s)"
@@ -49,7 +50,7 @@ checkrecentupdates () {
 			last=$(git lg -1 | grep -v days || true)
 			if [[ $last = *[$' \t\n\r']* ]]; then 
 				echo "[DEBUG] ${pushdir##*/}"
-				echo "[DEBUG] $last" | egrep "seconds|minutes" || true
+				echo "[DEBUG] $last" | grep -E "seconds|minutes" || true
 				echo
 			fi
 		popd >/dev/null
@@ -59,11 +60,15 @@ checkrecentupdates () {
 
 usage () {
 	echo "Usage:   $0 -b [BRANCH] [-w WORKDIR] [-f DOCKERFILE] [-maxdepth MAXDEPTH]"
-	echo "Downstream Example: $0 -b crw-2.5-rhel-8 -w $(pwd) -f rhel.Dockerfile -maxdepth 2"
-	echo "Upstream   Example: $0 -b master -w dockerfiles/ -f \*from.dockerfile -maxdepth 5 -o -prb pr-new-theia-base-images"
+	echo "Downstream Example: $0 -b ${SOURCES_BRANCH} -w \$(pwd) -f rhel.Dockerfile -maxdepth 2"
+	echo "Upstream Example 1: $0 -b 7.24.x -w dockerfiles/ -f \*from.dockerfile -maxdepth 5 -o -prb pr-new-theia-base-images"
+	echo "Upstream Example 2: $0 -b 7.24.x -w \$(pwd) -f Dockerfile -maxdepth 1 --tag '1\.13|8\.[0-9]-' --no-commit"
 	echo "Options: 
+	--sources-branch, -b    set sources branch (project to update), eg., 7.24.x
+	--scripts-branch, -sb   set scripts branch (project with helper scripts), eg., crw-2.6-rhel-8
 	--no-commit, -n    do not commit to BRANCH
 	--no-push, -p      do not push to BRANCH
+	--tag              regex match to restrict results, eg., '1\.13|8\.[0-9]-' to find golang 1.13 (not 1.14) and any ubi 8-x- tag
 	-prb               set a PR_BRANCH; default: pr-new-base-images-(timestamp)
 	-o                 open browser if PR generated
 	-q, -v             quiet, verbose output
@@ -76,16 +81,21 @@ usage () {
 
 if [[ $# -lt 1 ]]; then usage; exit; fi
 
+BASETAG="."
+EXCLUDES="latest|-source"
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     '-w') WORKDIR="$2"; shift 1;;
-    '-b') BRANCH="$2"; shift 1;;
+    '-b'|'--sources-branch') SOURCES_BRANCH="$2"; shift 1;;
+    '-sb'|'--scripts-branch') SCRIPTS_BRANCH="$2"; shift 1;;
+    '--tag') BASETAG="$2"; shift 1;; # rather than fetching latest tag, grab latest tag matching a pattern like "1.13"
+    '-x') EXCLUDES="$2"; shift 1;;
     '-f') DOCKERFILE="$2"; shift 1;;
     '-maxdepth') MAXDEPTH="$2"; shift 1;;
     '-c') buildCommand="rhpkg container-build"; shift 0;; # NOTE: will trigger a new build for each commit, rather than for each change set (eg., Dockefiles with more than one FROM)
     '-s') buildCommand="rhpkg container-build --scratch"; shift 0;;
-    '-n'|'--no-commit') docommit=0; dopush=0; shift 0;;
-    '-p'|'--no-push') dopush=0; shift 0;;
+    '-n'|'--nocommit'|'--no-commit') docommit=0; dopush=0; shift 0;;
+    '-p'|'--nopush'|'--no-push') dopush=0; shift 0;;
     '-prb') PR_BRANCH="$2"; shift 1;;
     '-o') OPENBROWSERFLAG="-o"; shift 0;;
     '-q') QUIET=1; shift 0;;
@@ -146,16 +156,16 @@ testvercomp () {
 }
 
 pushedIn=0
-for d in $(find ${WORKDIR} -maxdepth ${MAXDEPTH} -name ${DOCKERFILE} | sort); do
+for d in $(find ${WORKDIR} -maxdepth ${MAXDEPTH} -name ${DOCKERFILE} | sort -r); do
 	if [[ -f ${d} ]]; then
 		echo ""
 		echo "# Checking ${d} ..."
 		# pull latest commits
 		if [[ -d ${d%%/${DOCKERFILE}} ]]; then pushd ${d%%/${DOCKERFILE}} >/dev/null; pushedIn=1; fi
 		if [[ "${d%/${DOCKERFILE}}" == *"-rhel8" ]]; then
-			BRANCHUSED=${BRANCH/rhel-7/rhel-8}
+			BRANCHUSED=${SOURCES_BRANCH/rhel-7/rhel-8}
 		else
-			BRANCHUSED=${BRANCH}
+			BRANCHUSED=${SOURCES_BRANCH}
 		fi
 		git branch --set-upstream-to=origin/${BRANCHUSED} ${BRANCHUSED} -q || true
 		git checkout ${BRANCHUSED} -q || true 
@@ -171,10 +181,19 @@ for d in $(find ${WORKDIR} -maxdepth ${MAXDEPTH} -name ${DOCKERFILE} | sort); do
 			URL=${URL#registry.redhat.io/}
 			if [[ $VERBOSE -eq 1 ]]; then echo "[DEBUG] URL=$URL"; fi
 			if [[ $URL == "https"* ]]; then 
-				QUERY="$(echo $URL | sed -e "s#.\+\(registry.redhat.io\|registry.access.redhat.com\)/#skopeo inspect docker://registry.redhat.io/#g")"
-				if [[ ${QUIET} -eq 0 ]]; then echo "# $QUERY| jq .RepoTags| egrep -v \"\[|\]|latest|-source\"|sed -e 's#.*\"\(.\+\)\",*#- \1#'|sort -V|tail -5"; fi
+				# QUERY="$(echo $URL | sed -e "s#.\+\(registry.redhat.io\|registry.access.redhat.com\)/#skopeo inspect docker://registry.redhat.io/#g")"
+				# if [[ ${QUIET} -eq 0 ]]; then echo "# $QUERY| jq .RepoTags| grep -E -v \"\[|\]|latest|-source\"|sed -e 's#.*\"\(.\+\)\",*#- \1#'|sort -V|tail -5"; fi
+				# LATESTTAG=$(${QUERY} 2>/dev/null| jq .RepoTags|grep -E -v "\[|\]|latest|-source"|sed -e 's#.*\"\(.\+\)\",*#\1#'|sort -V|tail -1)
 				FROMPREFIX=$(echo $URL | sed -e "s#.\+registry.access.redhat.com/##g")
-				LATESTTAG=$(${QUERY} 2>/dev/null| jq .RepoTags|egrep -v "\[|\]|latest|-source"|sed -e 's#.*\"\(.\+\)\",*#\1#'|sort -V|tail -1)
+
+				# get getLatestImageTags script
+				pushd /tmp >/dev/null || exit 1
+				# TODO CRW-1511 sometimes this returns a 404 instead of a valid script. Why?
+				curl -sSLO https://raw.githubusercontent.com/redhat-developer/codeready-workspaces/${SCRIPTS_BRANCH}/product/getLatestImageTags.sh && chmod +x getLatestImageTags.sh
+				popd >/dev/null || exit 1
+				LATESTTAG=$(/tmp/getLatestImageTags.sh -c ${FROMPREFIX} -x "${EXCLUDES}" --tag "${BASETAG}")
+				LATESTTAG=${LATESTTAG##*:}
+
 				LATE_TAGver=${LATESTTAG%%-*} # 1.0
 				LATE_TAGrev=${LATESTTAG##*-} # 15.1553789946 or 15
 				LATE_TAGrevbase=${LATE_TAGrev%%.*} # 15
@@ -212,7 +231,7 @@ for d in $(find ${WORKDIR} -maxdepth ${MAXDEPTH} -name ${DOCKERFILE} | sort); do
 
 							# commit change and push it
 							if [[ -d ${d%%/${DOCKERFILE}} ]]; then pushd ${d%%/${DOCKERFILE}} >/dev/null; pushedIn=1; fi
-							set -x
+							# set -x
 							if [[ ${docommit} -eq 1 ]]; then 
 								git add ${DOCKERFILE} || true
 								git commit -s -m "[base] Update from ${URL} to ${FROMPREFIX}:${LATESTTAG}" ${DOCKERFILE}

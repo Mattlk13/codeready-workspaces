@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 Red Hat, Inc.
+ * Copyright (c) 2018-2021 Red Hat, Inc.
  * This program and the accompanying materials are made
  * available under the terms of the Eclipse Public License 2.0
  * which is available at https://www.eclipse.org/legal/epl-2.0/
@@ -46,11 +46,11 @@ public class CodereadyOpenShiftLoginPage extends OpenShiftLoginPage {
   private final CheLoginPage cheLoginPage;
 
   @Inject(optional = true)
-  @Named("env.openshift.regular.username")
+  @Named("env.openshift.username")
   private String openShiftUsername;
 
   @Inject(optional = true)
-  @Named("env.openshift.regular.password")
+  @Named("env.openshift.password")
   private String openShiftPassword;
 
   @Inject(optional = true)

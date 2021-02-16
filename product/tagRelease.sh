@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2019-2020 Red Hat, Inc.
+# Copyright (c) 2018-2021 Red Hat, Inc.
 # This program and the accompanying materials are made
 # available under the terms of the Eclipse Public License 2.0
 # which is available at https://www.eclipse.org/legal/epl-2.0/
@@ -11,8 +11,8 @@
 # script to tag the Che/CRW repos for a given release
 
 # defaults
-crw_repos_branch=crw-2.5-rhel-8
-pkgs_devel_branch=crw-2.5-rhel-8
+crw_repos_branch=crw-2.6-rhel-8
+pkgs_devel_branch=crw-2.6-rhel-8
 pduser=crw-build
 SOURCE_BRANCH="" # normally, use this script to create tags, not branches
 
@@ -21,15 +21,15 @@ CLEAN="false" #  if set true, delete existing folders and do fresh checkouts
 
 if [[ $# -lt 4 ]]; then
 	echo "
-To create tags:
-  $0 -t CRW_TAG -gh CRW_GH_BRANCH -ghtoken GITHUB_TOKEN -pd PKGS_DEVEL_BRANCH -pduser kerberos_user
+To create tags (and push updated CSV content into operator-metadata repo):
+  $0 -v CSV_VERSION -t CRW_VERSION -gh CRW_GH_BRANCH -ghtoken GITHUB_TOKEN -pd PKGS_DEVEL_BRANCH -pduser kerberos_user
 Example: 
-  $0 -t 2.5.0 -gh crw-2.5-rhel-8 -ghtoken \$GITHUB_TOKEN -pd crw-2.5-rhel-8 -pduser crw-build
+  $0 -v 2.y.0 -t 2.y -gh ${crw_repos_branch} -ghtoken \$GITHUB_TOKEN -pd ${pkgs_devel_branch} -pduser crw-build
 
 To create branches:
   $0 --branchfrom PREVIOUS_CRW_GH_BRANCH -gh NEW_CRW_GH_BRANCH -ghtoken GITHUB_TOKEN
 Example: 
-  $0 --branchfrom crw-2.5-rhel-8 -gh crw-2.6-rhel-8 -ghtoken \$GITHUB_TOKEN
+  $0 --branchfrom crw-2-rhel-8 -gh ${crw_repos_branch} -ghtoken \$GITHUB_TOKEN
 "
 	exit 1
 fi
@@ -38,7 +38,8 @@ fi
 while [[ "$#" -gt 0 ]]; do
   case $1 in
     '--branchfrom') SOURCE_BRANCH="$2"; shift 1;; # this flag will create branches instead of using branches to create tags
-    '-t') CRW_TAG="$2"; shift 1;;
+    '-v') CSV_VERSION="$2"; shift 1;; # 2.y.0
+    '-t') CRW_VERSION="$2"; shift 1;; # 2.y # used to get released metadata container's CSV contents
     '-gh') crw_repos_branch="$2"; shift 1;;
     '-ghtoken') GITHUB_TOKEN="$2"; shift 1;;
     '-pd') pkgs_devel_branch="$2"; shift 1;;
@@ -47,6 +48,10 @@ while [[ "$#" -gt 0 ]]; do
   esac
   shift 1
 done
+
+if [[ ! ${CRW_VERSION} ]]; then
+  CRW_VERSION=${CSV_VERSION%.*} # given 2.y.0, want 2.y
+fi
 
 if [[ ${CLEAN} == "true" ]]; then 
 	rm -fr /tmp/tmp-checkouts || true
@@ -58,7 +63,7 @@ cd /tmp/tmp-checkouts
 set -ex
 
 # tag pkgs.devel repos only (branches are created by SPMM ticket, eg., https://projects.engineering.redhat.com/browse/SPMM-2517)
-if [[ ${pkgs_devel_branch} ]] && [[ ${CRW_TAG} ]]; then 
+if [[ ${pkgs_devel_branch} ]] && [[ ${CSV_VERSION} ]]; then 
 	for d in \
 	codeready-workspaces-configbump \
 	codeready-workspaces-operator \
@@ -107,8 +112,8 @@ if [[ ${pkgs_devel_branch} ]] && [[ ${CRW_TAG} ]]; then
 		fi
 		pushd /tmp/tmp-checkouts/containers_${d} >/dev/null || exit 1
 			# push new tag (no op if already exists)
-			git tag -a ${CRW_TAG} -m "${CRW_TAG}" || true
-			git push origin ${CRW_TAG} || true
+			git tag -a ${CSV_VERSION} -m "${CSV_VERSION}" || true
+			git push origin ${CSV_VERSION} || true
 		popd >/dev/null || exit 1
 	done
 fi
@@ -119,7 +124,6 @@ codeready-workspaces-chectl \
 codeready-workspaces-deprecated \
 codeready-workspaces-images \
 codeready-workspaces-operator \
-codeready-workspaces-productization \
 codeready-workspaces-theia \
 ; do
 	echo; echo "== $d =="
@@ -139,14 +143,15 @@ codeready-workspaces-theia \
 		popd >/dev/null || exit 1
 	fi
 	pushd /tmp/tmp-checkouts/projects_${d} >/dev/null || exit 1
-	if [[ $d == "codeready-workspaces-operator" ]]; then
+	# only do this when tagging, not when creating branches
+	if [[ ! ${SOURCE_BRANCH} ]] && [[ $d == "codeready-workspaces-operator" ]]; then
 		# CRW-1386 OLD WAY, end up with internal repo refs in the published CSV
 		# rsync -aPr ../containers_codeready-workspaces-operator-metadata/manifests/* ./manifests/
 
 		# CRW-1386 new way - use containerExtract.sh to get the live, published operator-metadata image and copy the manifests/ folder from there
-		rm -fr /tmp/registry.redhat.io-codeready-workspaces-crw-2-rhel8-operator-metadata-2.5* || true
-		bash -x "${SCRIPTPATH}"/containerExtract.sh registry.redhat.io/codeready-workspaces/crw-2-rhel8-operator-metadata:2.5
-		rsync -aPr /tmp/registry.redhat.io-codeready-workspaces-crw-2-rhel8-operator-metadata-2.5*/manifests/* ./manifests/
+		rm -fr /tmp/registry.redhat.io-codeready-workspaces-crw-2-rhel8-operator-metadata-${CRW_VERSION}* || true
+		bash -x "${SCRIPTPATH}"/containerExtract.sh registry.redhat.io/codeready-workspaces/crw-2-rhel8-operator-metadata:${CRW_VERSION}
+		rsync -aPr /tmp/registry.redhat.io-codeready-workspaces-crw-2-rhel8-operator-metadata-${CRW_VERSION}*/manifests/* ./manifests/
 
 		git add ./manifests/
 		git commit -s -m "[release] copy generated manifests/ content back to codeready-workspaces-operator before tagging" ./manifests/ || true
@@ -156,9 +161,9 @@ codeready-workspaces-theia \
 		git branch ${crw_repos_branch} || true
 		git push origin ${crw_repos_branch} || true
 	fi
-	if [[ $CRW_TAG ]]; then # push a new tag (or no-op if exists)
-		git tag ${CRW_TAG} || true
-		git push origin ${CRW_TAG} || true
+	if [[ $CSV_VERSION ]]; then # push a new tag (or no-op if exists)
+		git tag ${CSV_VERSION} || true
+		git push origin ${CSV_VERSION} || true
 	fi
 	popd >/dev/null || exit 1
 done

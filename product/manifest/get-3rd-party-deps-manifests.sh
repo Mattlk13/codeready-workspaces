@@ -58,9 +58,10 @@ function getBashVars () {
 	# parse the specific file and export the correct variables
 	pushd /tmp/codeready-workspaces-deprecated >/dev/null || exit 1
 		for p in ${dir}/build.sh; do 
-			egrep "export " $p | egrep -v "SCRIPT_DIR" | sed -r -e "s@#.+@@g" > "${p}.tmp"
+			grep -E "export " $p | grep -E -v "SCRIPT_DIR|PATH=" | sed -r -e "s@#.+@@g" > "${p}.tmp"
 			# shellcheck disable=SC1090
-			. "${p}.tmp" && rm -f ${p}.tmp
+			. "${p}.tmp"
+			rm -f ${p}.tmp
 		done
 	popd >/dev/null || exit 1
 }
@@ -102,8 +103,8 @@ function logDockerDetails ()
 	theFile=/tmp/curl.tmp
 	curl -sSL $theFileURL > $theFile
 	prefix="$2" # echo prefix="$2"
-	log "$(cat $theFile | egrep -i "FROM|yum|rh-|INSTALL|COPY|ADD|curl|_VERSION" | egrep -v "opt/rh|yum clean all|yum-config-manager|^( *)#|useradd|entrypoint.sh|gopath")"
-	mnf "$(cat $theFile | egrep "^FROM" | sed -e "s#^FROM #${prefix}#g")"
+	log "$(cat $theFile | grep -E -i "FROM|yum|rh-|INSTALL|COPY|ADD|curl|_VERSION" | grep -E -v "opt/rh|yum clean all|yum-config-manager|^( *)#|useradd|entrypoint.sh|gopath")"
+	mnf "$(cat $theFile | grep -E "^FROM" | sed -e "s#^FROM #${prefix}#g")"
 	rm -f $theFile
 }
 
@@ -171,14 +172,14 @@ if [[ ${phases} == *"2"* ]]; then
 	log " == golang =="
 	log ""
 	log "2a. Install golang go deps: go-language-server@${GOLANG_LS_VERSION}"
+	if [[ ! -x /usr/bin/go ]]; then sudo yum -y -q install golang || true; fi
 	if [[ ! -x /usr/bin/go ]]; then echo "Error: install golang to run this script: sudo yum -y install golang"; exit 1; fi
 	getBashVars golang
 	for d in \
-		"GOLANG_IMAGE_VERSION" \
+		"GOLANG_IMAGE" \
 		"GOLANG_LINT_VERSION" \
 		"GOLANG_LS_OLD_DEPS" \
 		"GOLANG_LS_VERSION" \
-		"NODEJS_IMAGE_VERSION" \
 		; do
 		log " * $d = ${!d}"
 	done
@@ -189,7 +190,7 @@ if [[ ${phases} == *"2"* ]]; then
 	mkdir -p go-deps-tmp && cd go-deps-tmp
 
 	# run the same set of go get -v commands in the build.sh script:
-	egrep "go get -v|go build -o" /tmp/codeready-workspaces-deprecated/golang/build.sh > todos.txt
+	grep -E "go get -v|go build -o" /tmp/codeready-workspaces-deprecated/golang/build.sh > todos.txt
 	while read p; do
 		# if you want more detailed output and logging, comment the next 1 line and uncomment the following 4 lines
 		log "  ${p%%;*}"; ${p%%;*} || true
@@ -198,7 +199,7 @@ if [[ ${phases} == *"2"* ]]; then
 		#log "<== ${p%%;*} =="
 		#log ""
 	done <todos.txt
-	egrep "GOLANG_LINT_VERSION" /tmp/codeready-workspaces-deprecated/golang/build.sh > todos.txt
+	grep -E "GOLANG_LINT_VERSION" /tmp/codeready-workspaces-deprecated/golang/build.sh > todos.txt
 	. todos.txt
 	rm -f todos.txt
 
@@ -215,6 +216,7 @@ if [[ ${phases} == *"2"* ]]; then
 
 	log ""
 	log "2b. Install golang npm deps: go-language-server@${GOLANG_LS_VERSION}"
+	if [[ ! $(which npm) ]]; then sudo yum -y -q install nodejs npm || true; fi
 	if [[ ! $(which npm) ]]; then echo "Error: install nodejs and npm to run this script: sudo yum -y install nodejs npm"; exit 1; fi
 	log ""
 	cd /tmp
@@ -235,7 +237,7 @@ if [[ ${phases} == *"2"* ]]; then
 	log "2c. kamel is built from go sources with no additional requirements"
 	getBashVars kamel
 	for d in \
-		"GOLANG_IMAGE_VERSION" \
+		"GOLANG_IMAGE" \
 		"KAMEL_VERSION" \
 		; do
 		log " * $d = ${!d}"
@@ -251,10 +253,11 @@ if [[ ${phases} == *"3"* ]]; then
 	log " == node10 (plugin-java8 container) =="
 	log""
 	log "3. Install node10 deps: typescript@${TYPERSCRIPT_VERSION} typescript-language-server@${TYPESCRIPT_LS_VERSION}"
+	if [[ ! $(which npm) ]]; then sudo yum -y -q install nodejs npm || true; fi
 	if [[ ! $(which npm) ]]; then echo "Error: install nodejs and npm to run this script: sudo yum -y install nodejs npm"; exit 1; fi
 	getBashVars node10
 	for d in \
-		"NODEJS_IMAGE_VERSION" \
+		"NODEJS_IMAGE" \
 		"NODEMON_VERSION" \
 		"TYPERSCRIPT_VERSION" \
 		"TYPESCRIPT_LS_VERSION" \
@@ -283,7 +286,8 @@ if [[ ${phases} == *"4"* ]]; then
 	log " == php =="
 	log""
 	log "4. Install php deps: "
-	if [[ ! $(which php) ]]; then echo "Error: install php to run this script: sudo yum -y install php-devel"; exit 1; fi
+	if [[ ! $(which php) ]]; then sudo yum -y -q install php-devel php-json || true; fi
+	if [[ ! $(which php) ]]; then echo "Error: install php to run this script: sudo yum -y install php-devel php-json"; exit 1; fi
 	getBashVars php
 	for d in \
 		"PHP_LS_VERSION" \
@@ -323,11 +327,13 @@ if [[ ${phases} == *"5"* ]]; then
 	log ""
 	log " == python (plugin-java8 container) =="
 	log ""
-	log "5. Install python deps: pip install python-language-server[all]==${PYTHON_LS_VERSION}"
-	if [[ ! $(which python3) ]] || [[ ! $(pydoc modules | grep virtualenv) ]]; then echo "Error: install python3-six and python3-pip python-virtualenv to run this script: sudo yum -y install python3-six python3-pip python-virtualenv"; exit 1; fi
+	log "5. Install python deps (including python3-virtualenv): pip install python-language-server[all]==${PYTHON_LS_VERSION}"
+	pyrpms="python3-six python3-pip python3-virtualenv"
+	if [[ ! $(which python3) ]] || [[ ! $(pydoc3 modules | grep virtualenv) ]]; then sudo yum install -y -q $pyrpms || true; fi
+	if [[ ! $(which python3) ]] || [[ ! $(pydoc3 modules | grep virtualenv) ]]; then echo "Error: install $pyrpms to run this script: sudo yum -y install $pyrpms"; exit 1; fi
 	getBashVars python
 	for d in \
-		"PYTHON_IMAGE_VERSION" \
+		"PYTHON_IMAGE" \
 		"PYTHON_LS_VERSION" \
 		; do
 		log " * $d = ${!d}"
@@ -337,9 +343,8 @@ if [[ ${phases} == *"5"* ]]; then
 	rm -fr /tmp/python-deps-tmp
 	mkdir -p python-deps-tmp && cd python-deps-tmp
 
-	python3 -m virtualenv env
+	/usr/bin/python3 -m virtualenv env
 	source env/bin/activate
-	which python
 	/usr/bin/python3 -m pip install --upgrade pip
 	{ /usr/bin/python3 -m pip install python-language-server[all]==${PYTHON_LS_VERSION} | tee -a ${LOG_FILE}; } || true
 	log ""

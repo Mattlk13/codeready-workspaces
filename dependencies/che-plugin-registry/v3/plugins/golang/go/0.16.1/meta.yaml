@@ -6,13 +6,13 @@ type: VS Code extension
 displayName: Go
 title: Rich Go language support
 description: This extension adds rich language support for the Go language
-icon: https://raw.githubusercontent.com/redhat-developer/codeready-workspaces/master/dependencies/che-plugin-registry/resources/images/default.svg?sanitize=true
+icon: /v3/images/golang-go-icon.png
 repository: https://github.com/golang/vscode-go
 category: Language
 firstPublicationDate: '2020-09-03'
 spec:
   containers:
-    - image: "registry.redhat.io/codeready-workspaces/stacks-golang-rhel8:2.5"
+    - image: "registry.redhat.io/codeready-workspaces/stacks-golang-rhel8:2.6"
       name: vscode-go
       memoryLimit: '512Mi'
       args:
